@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Caixa • PIX Control by Luminus</title>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+<style>
+:root {
+  --primary:#2563eb;
+  --bg:#020617;
+  --card:#020617;
+  --border:#1e293b;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+  --success:#22c55e;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  font-family:"Segoe UI",Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  padding:30px;
+}
+
+.header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:30px;
+}
+
+.header h1{margin:0;font-size:22px}
+.status{
+  font-size:12px;
+  color:var(--success);
+}
+
+.pix-list{
+  max-width:420px;
+}
+
+.pix-item{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-left:5px solid var(--primary);
+  padding:18px;
+  border-radius:14px;
+  margin-bottom:14px;
+  animation:fade .25s ease;
+}
+
+.valor{
+  font-size:28px;
+  font-weight:bold;
+  color:var(--primary);
+}
+
+.hora{
+  font-size:12px;
+  color:var(--muted);
+  margin-top:4px;
+}
+
+.status-pix{
+  font-size:12px;
+  color:var(--success);
+  margin-top:6px;
+}
+
+.footer{
+  margin-top:40px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+@keyframes fade{
+  from{opacity:0;transform:translateY(8px)}
+  to{opacity:1;transform:translateY(0)}
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <h1>💸 PIX Recebidos</h1>
+  <div class="status" id="socketStatus">● Conectado</div>
+</div>
+
+<div class="pix-list" id="pixList"></div>
+
+<div class="footer">
+  PIX Control by Luminus • Tela do Caixa<br>
+  <a href="/logout" style="color:var(--muted);text-decoration:none;">Sair</a>
+</div>
+
+<script>
+const socket = io();
+const pixList = document.getElementById("pixList");
+const statusEl = document.getElementById("socketStatus");
+const MAX_PIX = 5;
+
+socket.on("connect", () => {
+  statusEl.innerText = "● Conectado";
+  statusEl.style.color = "#22c55e";
+});
+
+socket.on("disconnect", () => {
+  statusEl.innerText = "● Desconectado";
+  statusEl.style.color = "#ef4444";
+});
+
+socket.on("pix_received", (data) => {
+  // Validação defensiva (SaaS)
+  if (!data || !data.valor || !data.hora) return;
+
+  const item = document.createElement("div");
+  item.className = "pix-item";
+
+  const valor = document.createElement("div");
+  valor.className = "valor";
+  valor.innerText = "R$ " + data.valor;
+
+  const hora = document.createElement("div");
+  hora.className = "hora";
+  hora.innerText = "🕒 " + data.hora;
+
+  const status = document.createElement("div");
+  status.className = "status-pix";
+  status.innerText = "✔ " + (data.status || "CONFIRMADO");
+
+  item.appendChild(valor);
+  item.appendChild(hora);
+  item.appendChild(status);
+
+  pixList.prepend(item);
+
+  while (pixList.children.length > MAX_PIX) {
+    pixList.removeChild(pixList.lastChild);
+  }
+});
+</script>
+
+</body>
+</html>

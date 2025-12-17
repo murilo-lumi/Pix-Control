@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Dashboard • PIX Control by Luminus</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root {
+  --primary:#2563eb;
+  --bg:#020617;
+  --card:#020617;
+  --border:#1e293b;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  font-family:"Segoe UI",Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  display:flex;
+}
+
+.sidebar{
+  width:260px;
+  border-right:1px solid var(--border);
+  padding:32px 22px;
+}
+
+.brand{margin-bottom:40px}
+.brand h2{margin:0}
+.brand span{font-size:12px;color:var(--muted)}
+
+.sidebar a{
+  display:block;
+  color:var(--muted);
+  text-decoration:none;
+  padding:12px 16px;
+  border-radius:10px;
+  margin-bottom:10px;
+}
+.sidebar a.active,
+.sidebar a:hover{
+  background:var(--primary);
+  color:#fff;
+}
+
+.content{flex:1;padding:40px}
+
+.header{
+  display:flex;
+  justify-content:space-between;
+  margin-bottom:40px;
+}
+
+.cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:24px;
+  margin-bottom:40px;
+}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:26px;
+}
+
+.card h3{margin:0 0 10px 0;color:var(--muted);font-size:14px}
+.card .value{font-size:32px;color:var(--primary);font-weight:bold}
+
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 0;border-bottom:1px solid var(--border)}
+th{color:var(--muted);font-size:13px;text-align:left}
+
+.footer{
+  margin-top:60px;
+  text-align:center;
+  font-size:12px;
+  color:var(--muted);
+}
+</style>
+</head>
+
+<body>
+
+<div class="sidebar">
+  <div class="brand">
+    <h2>PIX Control</h2>
+    <span>by Luminus</span>
+  </div>
+  <a class="active" href="/gerente">📊 Dashboard</a>
+  <a href="/gerente/usuarios">👥 Caixas</a>
+  <a href="/relatorio/{{ data }}/pdf">📄 Relatório</a>
+  <a href="/logout">🔒 Sair</a>
+</div>
+
+<div class="content">
+
+<div class="header">
+  <h1>Dashboard do Gerente</h1>
+  <div style="color:var(--muted)">📅 {{ data }}</div>
+</div>
+
+<section class="cards">
+  <div class="card">
+    <h3>Total em PIX</h3>
+    <div class="value">R$ {{ total|round(2) }}</div>
+  </div>
+  <div class="card">
+    <h3>Quantidade</h3>
+    <div class="value">{{ quantidade }}</div>
+  </div>
+  <div class="card">
+    <h3>Ticket médio</h3>
+    <div class="value">
+      R$ {{ (total/quantidade)|round(2) if quantidade > 0 else 0 }}
+    </div>
+  </div>
+</section>
+
+<div class="card" style="margin-bottom:40px">
+  <h3>📈 Histórico de PIX</h3>
+  <canvas id="graficoPix" height="90"></canvas>
+</div>
+
+<div class="card" style="margin-bottom:30px">
+  <h3>📅 Consultar por data</h3>
+  <input type="date" id="dataFiltro">
+  <button onclick="buscarPorData()">Buscar</button>
+</div>
+
+<div class="card">
+  <h3>📄 Resultado</h3>
+  <p>Total: <strong id="totalDia">R$ 0,00</strong> • 
+     Quantidade: <strong id="qtdDia">0</strong></p>
+  <table>
+    <thead>
+      <tr><th>Hora</th><th>Valor</th><th>Status</th></tr>
+    </thead>
+    <tbody id="listaPixData"></tbody>
+  </table>
+</div>
+
+<div class="footer">
+  PIX Control by Luminus • Plataforma SaaS
+</div>
+
+</div>
+
+<script>
+fetch("/gerente/grafico/dados")
+.then(r=>r.json())
+.then(d=>{
+  new Chart(document.getElementById("graficoPix"),{
+    type:"line",
+    data:{
+      labels:d.labels,
+      datasets:[{
+        data:d.valores,
+        borderColor:"#2563eb",
+        backgroundColor:"rgba(37,99,235,.15)",
+        fill:true,
+        tension:.4
+      }]
+    },
+    options:{plugins:{legend:{display:false}}}
+  })
+});
+
+function buscarPorData(){
+  const data=document.getElementById("dataFiltro").value;
+  if(!data) return alert("Selecione uma data");
+
+  fetch(/gerente/pix/por-data?data=${data})
+  .then(r=>r.json())
+  .then(d=>{
+    document.getElementById("totalDia").innerText="R$ "+d.total;
+    document.getElementById("qtdDia").innerText=d.quantidade;
+
+    const tbody=document.getElementById("listaPixData");
+    tbody.innerHTML="";
+
+    d.pix.forEach(p=>{
+      const tr=document.createElement("tr");
+      ["hora","valor","status"].forEach(k=>{
+        const td=document.createElement("td");
+        td.innerText = k==="valor" ? "R$ "+p[k] : p[k];
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  })
+  .catch(()=>alert("Erro ao buscar dados"));
+}
+</script>
+
+</body>
+</html>

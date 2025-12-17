@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Usuários • PIX Control by Luminus</title>
+
+<style>
+:root{
+  --primary:#2563eb;
+  --danger:#ef4444;
+  --success:#22c55e;
+  --bg:#020617;
+  --card:#020617;
+  --border:#1e293b;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  font-family:"Segoe UI",Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  display:flex;
+}
+
+.sidebar{
+  width:260px;
+  background:var(--bg);
+  border-right:1px solid var(--border);
+  padding:32px 22px;
+}
+
+.sidebar h2{margin:0;font-size:22px}
+.sidebar span{font-size:12px;color:var(--muted)}
+
+.sidebar a{
+  display:block;
+  margin-top:16px;
+  color:var(--muted);
+  text-decoration:none;
+  padding:10px 14px;
+  border-radius:10px;
+}
+
+.sidebar a.active,
+.sidebar a:hover{
+  background:var(--primary);
+  color:#fff;
+}
+
+.content{
+  flex:1;
+  padding:40px;
+}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:28px;
+  margin-bottom:30px;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+}
+
+th{
+  text-align:left;
+  font-size:13px;
+  color:var(--muted);
+  padding-bottom:10px;
+}
+
+td{
+  padding:14px 0;
+  border-top:1px solid var(--border);
+}
+
+.badge{
+  padding:6px 12px;
+  border-radius:20px;
+  font-size:12px;
+  font-weight:bold;
+}
+
+.ativo{background:rgba(34,197,94,.15);color:var(--success)}
+.bloqueado{background:rgba(239,68,68,.15);color:var(--danger)}
+
+button{
+  padding:8px 14px;
+  border:none;
+  border-radius:10px;
+  font-size:12px;
+  cursor:pointer;
+}
+
+.btn-on{background:var(--success);color:#000}
+.btn-off{background:var(--danger);color:#fff}
+
+form{
+  display:flex;
+  gap:12px;
+  margin-top:20px;
+}
+
+input{
+  padding:12px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  background:var(--bg);
+  color:var(--text);
+}
+</style>
+</head>
+
+<body>
+
+<div class="sidebar">
+  <h2>PIX Control</h2>
+  <span>by Luminus</span>
+
+  <a href="/gerente">📊 Dashboard</a>
+  <a href="/gerente/usuarios" class="active">👥 Usuários</a>
+  <a href="/logout">🔒 Sair</a>
+</div>
+
+<div class="content">
+
+  <div class="card">
+    <h3>Usuários cadastrados</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Usuário</th>
+          <th>Tipo</th>
+          <th>Status</th>
+          <th>Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in usuarios %}
+        <tr>
+          <td>{{ u[1] }}</td>
+          <td>{{ u[2] }}</td>
+          <td>
+            {% if u[3] == 1 %}
+              <span class="badge ativo">Ativo</span>
+            {% else %}
+              <span class="badge bloqueado">Bloqueado</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u[3] == 1 %}
+              <a href="/gerente/usuarios/{{ u[0] }}/status?ativo=0"
+                 onclick="return confirm('Bloquear este usuário?')">
+                <button class="btn-off">Bloquear</button>
+              </a>
+            {% else %}
+              <a href="/gerente/usuarios/{{ u[0] }}/status?ativo=1"
+                 onclick="return confirm('Ativar este usuário?')">
+                <button class="btn-on">Ativar</button>
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>➕ Criar novo caixa</h3>
+
+    <form method="post" action="/gerente/usuarios/criar">
+      <!-- CSRF TOKEN (OBRIGATÓRIO) -->
+      <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token') }}">
+
+      <input name="username" placeholder="Usuário" required>
+      <input name="senha" placeholder="Senha inicial" required>
+      <button class="btn-on">Criar</button>
+    </form>
+  </div>
+
+</div>
+
+</body>
+</html>
