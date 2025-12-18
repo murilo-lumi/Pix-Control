@@ -186,3 +186,9 @@ def webhook_pix():
 
     log_event("webhook_pix_confirmado", ip=ip, extra=data.get("amount"))
     return jsonify({"ok": True})
+
+if __name__ == "__main__":
+    Thread(target=fechamento_auto, daemon=True).start()
+
+    port = int(os.environ.get("PORT", 5000))
+    socketio.run(app, host="0.0.0.0", port=port)
