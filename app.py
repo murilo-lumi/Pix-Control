@@ -43,7 +43,14 @@ from database import (
     listar_usuarios, criar_usuario, alterar_status_usuario
 )
 
-from logs import log_event
+# ======================================================
+# LOGS (NUNCA DERRUBA O APP)
+# ======================================================
+try:
+    from logs import log_event
+except Exception:
+    def log_event(*args, **kwargs):
+        pass
 
 # ======================================================
 # RATE LIMIT
@@ -70,7 +77,7 @@ def rate_limit_webhook(ip, max_hits=30, window=60):
 # ======================================================
 # APP
 # ======================================================
-app = Flask(__name__)
+app = Flask(_name_)
 app.config["SECRET_KEY"] = FLASK_SECRET_KEY
 
 app.config.update(
@@ -79,9 +86,12 @@ app.config.update(
     SESSION_COOKIE_SECURE=IS_PROD
 )
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(app, async_mode="threading")
 init_db()
 
+# ======================================================
+# CSRF GLOBAL
+# ======================================================
 @app.context_processor
 def inject_csrf():
     return dict(csrf_token=session.get("csrf_token"))
@@ -180,7 +190,13 @@ def login():
 def gerente():
     hoje = datetime.now().strftime("%Y-%m-%d")
     total, quantidade = resumo_do_dia(hoje)
-    return render_template("gerente.html", data=hoje, total=total, quantidade=quantidade)
+
+    return render_template(
+        "gerente.html",
+        data=hoje,
+        total=total,
+        quantidade=quantidade
+    )
 
 @app.route("/gerente/usuarios")
 @login_required
@@ -230,10 +246,13 @@ def webhook_pix():
     payload = request.get_data()
     assinatura = request.headers.get("X-Signature")
 
-    if not hmac.compare_digest(
-        hmac.new(PIX_WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest(),
-        assinatura or ""
-    ):
+    calc = hmac.new(
+        PIX_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(calc, assinatura or ""):
         log_event("webhook_assinatura_invalida", ip=ip)
         abort(401)
 
@@ -261,20 +280,26 @@ def relatorio_pdf(data):
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
+
     c.setFont("Helvetica-Bold", 22)
     c.drawString(50, 800, "PIX CONTROL")
+
     c.setFont("Helvetica", 12)
     c.drawString(50, 760, f"Relatório diário • {data}")
     c.drawString(50, 720, f"Total: R$ {total:.2f}")
     c.drawString(50, 700, f"Quantidade: {quantidade}")
     c.drawString(50, 680, f"Ticket médio: R$ {ticket:.2f}")
+
     c.showPage()
     c.save()
     buffer.seek(0)
 
-    return send_file(buffer, as_attachment=True,
-                     download_name=f"relatorio_{data}.pdf",
-                     mimetype="application/pdf")
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"relatorio_{data}.pdf",
+        mimetype="application/pdf"
+    )
 
 # ======================================================
 # FECHAMENTO AUTOMÁTICO
@@ -290,7 +315,7 @@ def fechamento_auto():
 # ======================================================
 # START
 # ======================================================
-if __name__ == "__main__":
+if _name_ == "_main_":
     Thread(target=fechamento_auto, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host="0.0.0.0", port=port)

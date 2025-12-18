@@ -187,6 +187,13 @@ input{
     </form>
   </div>
 
+<form method="post" action="/gerente/usuarios/criar">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input name="username" placeholder="Usuário" required>
+  <input name="senha" placeholder="Senha inicial" required>
+  <button class="btn-on">Criar</button>
+</form>
+
 </div>
 
 </body>
