@@ -82,6 +82,10 @@ app.config.update(
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 init_db()
 
+@app.context_processor
+def inject_csrf():
+    return dict(csrf_token=session.get("csrf_token"))
+
 # ======================================================
 # HEADERS DE SEGURANÇA
 # ======================================================
