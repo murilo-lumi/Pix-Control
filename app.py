@@ -24,7 +24,6 @@ import hmac
 import hashlib
 import time
 import io
-import sqlite3
 from datetime import datetime
 from threading import Thread
 from functools import wraps
@@ -120,6 +119,18 @@ def role_required(role):
     return decorator
 
 # ======================================================
+# ROTAS BÁSICAS
+# ======================================================
+@app.route("/")
+def index():
+    return redirect("/login")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+# ======================================================
 # LOGIN
 # ======================================================
 @app.route("/login", methods=["GET", "POST"])
@@ -157,6 +168,51 @@ def login():
     return render_template("login.html")
 
 # ======================================================
+# GERENTE
+# ======================================================
+@app.route("/gerente")
+@login_required
+@role_required("gerente")
+def gerente():
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    total, quantidade = resumo_do_dia(hoje)
+    return render_template("gerente.html", data=hoje, total=total, quantidade=quantidade)
+
+@app.route("/gerente/usuarios")
+@login_required
+@role_required("gerente")
+def gerente_usuarios():
+    return render_template("usuarios.html", usuarios=listar_usuarios())
+
+@app.route("/gerente/usuarios/criar", methods=["POST"])
+@login_required
+@role_required("gerente")
+def criar_caixa_view():
+    if request.form.get("csrf_token") != session.get("csrf_token"):
+        abort(403)
+
+    criar_usuario(request.form["username"], request.form["senha"], "caixa")
+    log_event("criar_caixa", user=session.get("user_id"))
+    return redirect("/gerente/usuarios")
+
+@app.route("/gerente/usuarios/<int:user_id>/status")
+@login_required
+@role_required("gerente")
+def status_caixa(user_id):
+    alterar_status_usuario(user_id, int(request.args.get("ativo")))
+    log_event("alterar_status_usuario", user=session.get("user_id"))
+    return redirect("/gerente/usuarios")
+
+# ======================================================
+# CAIXA
+# ======================================================
+@app.route("/caixa")
+@login_required
+@role_required("caixa")
+def caixa():
+    return render_template("painel_caixa.html", SOCKETIO_TOKEN=SOCKETIO_TOKEN)
+
+# ======================================================
 # WEBHOOK PIX
 # ======================================================
 @app.route("/webhook/pix", methods=["POST"])
@@ -184,11 +240,53 @@ def webhook_pix():
         data.get("status", "CONFIRMADO")
     )
 
-    log_event("webhook_pix_confirmado", ip=ip, extra=data.get("amount"))
+    log_event("pix_confirmado", ip=ip, extra=data.get("amount"))
     return jsonify({"ok": True})
 
+# ======================================================
+# RELATÓRIO PDF
+# ======================================================
+@app.route("/relatorio/<data>/pdf")
+@login_required
+@role_required("gerente")
+def relatorio_pdf(data):
+    fechamento = buscar_fechamento(data) or {}
+    total = fechamento.get("total", 0)
+    quantidade = fechamento.get("quantidade", 0)
+    ticket = total / quantidade if quantidade else 0
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(50, 800, "PIX CONTROL")
+    c.setFont("Helvetica", 12)
+    c.drawString(50, 760, f"Relatório diário • {data}")
+    c.drawString(50, 720, f"Total: R$ {total:.2f}")
+    c.drawString(50, 700, f"Quantidade: {quantidade}")
+    c.drawString(50, 680, f"Ticket médio: R$ {ticket:.2f}")
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return send_file(buffer, as_attachment=True,
+                     download_name=f"relatorio_{data}.pdf",
+                     mimetype="application/pdf")
+
+# ======================================================
+# FECHAMENTO AUTOMÁTICO
+# ======================================================
+def fechamento_auto():
+    while True:
+        agora = datetime.now()
+        if agora.hour == 23 and agora.minute == 59:
+            fechar_dia(agora.strftime("%Y-%m-%d"))
+            time.sleep(70)
+        time.sleep(30)
+
+# ======================================================
+# START
+# ======================================================
 if __name__ == "__main__":
     Thread(target=fechamento_auto, daemon=True).start()
-
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host="0.0.0.0", port=port)
