@@ -46,12 +46,11 @@ from database import (
     autenticar_usuario,
     listar_usuarios,
     criar_usuario,
-    alterar_status_usuario,
-    buscar_empresa_do_usuario  # <<< SaaS
+    alterar_status_usuario
 )
 
 # ======================================================
-# LOGS (NUNCA DERRUBA O APP)
+# LOGS (SAFE)
 # ======================================================
 try:
     from logs import log_event
@@ -97,25 +96,22 @@ socketio = SocketIO(app, async_mode="threading")
 init_db()
 
 # ======================================================
-# CSRF GLOBAL
+# CSRF
 # ======================================================
 @app.context_processor
 def inject_csrf():
     return dict(csrf_token=session.get("csrf_token"))
 
 # ======================================================
-# HEADERS DE SEGURANÇA
+# SECURITY HEADERS
 # ======================================================
 @app.after_request
 def security_headers(resp):
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "strict-origin"
-    resp.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
-
     if IS_PROD:
         resp.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-
     return resp
 
 # ======================================================
@@ -148,7 +144,7 @@ def empresa_required(f):
     return wrapper
 
 # ======================================================
-# ROTAS BÁSICAS
+# ROTAS
 # ======================================================
 @app.route("/")
 def index():
@@ -160,7 +156,7 @@ def logout():
     return redirect("/login")
 
 # ======================================================
-# LOGIN (COM EMPRESA + PLANO)
+# LOGIN
 # ======================================================
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -171,7 +167,6 @@ def login():
         ip = request.remote_addr
 
         if not rate_limit_login(ip):
-            log_event("login_rate_limit", ip=ip)
             abort(429)
 
         if request.form.get("csrf_token") != session.get("csrf_token"):
@@ -183,22 +178,13 @@ def login():
         )
 
         if user:
-            empresa = buscar_empresa_do_usuario(user[0])
-
             session.clear()
             session["user_id"] = user[0]
             session["tipo"] = user[1]
-            session["empresa_id"] = empresa["id"]
-            session["plano"] = empresa["plano"]
+            session["empresa_id"] = user[2]
             session["csrf_token"] = secrets.token_hex(16)
 
-            log_event(
-                "login_sucesso",
-                user=user[0],
-                ip=ip,
-                extra=f"empresa={empresa['id']} plano={empresa['plano']}"
-            )
-
+            log_event("login_sucesso", user=user[0], ip=ip)
             return redirect("/gerente" if user[1] == "gerente" else "/caixa")
 
         log_event("login_falha", user=request.form.get("usuario"), ip=ip)
@@ -215,21 +201,18 @@ def login():
 @empresa_required
 def gerente():
     hoje = datetime.now().strftime("%Y-%m-%d")
-    total, quantidade = resumo_do_dia(hoje)
-
-    return render_template(
-        "gerente.html",
-        data=hoje,
-        total=total,
-        quantidade=quantidade
-    )
+    total, quantidade = resumo_do_dia(hoje, session["empresa_id"])
+    return render_template("gerente.html", data=hoje, total=total, quantidade=quantidade)
 
 @app.route("/gerente/usuarios")
 @login_required
 @role_required("gerente")
 @empresa_required
 def gerente_usuarios():
-    return render_template("usuarios.html", usuarios=listar_usuarios())
+    return render_template(
+        "usuarios.html",
+        usuarios=listar_usuarios(session["empresa_id"])
+    )
 
 @app.route("/gerente/usuarios/criar", methods=["POST"])
 @login_required
@@ -239,17 +222,12 @@ def criar_caixa_view():
     if request.form.get("csrf_token") != session.get("csrf_token"):
         abort(403)
 
-    criar_usuario(request.form["username"], request.form["senha"], "caixa")
-    log_event("criar_caixa", user=session.get("user_id"))
-    return redirect("/gerente/usuarios")
-
-@app.route("/gerente/usuarios/<int:user_id>/status")
-@login_required
-@role_required("gerente")
-@empresa_required
-def status_caixa(user_id):
-    alterar_status_usuario(user_id, int(request.args.get("ativo")))
-    log_event("alterar_status_usuario", user=session.get("user_id"))
+    criar_usuario(
+        request.form["username"],
+        request.form["senha"],
+        "caixa",
+        session["empresa_id"]
+    )
     return redirect("/gerente/usuarios")
 
 # ======================================================
@@ -270,7 +248,6 @@ def webhook_pix():
     ip = request.remote_addr
 
     if not rate_limit_webhook(ip):
-        log_event("webhook_rate_limit", ip=ip)
         abort(429)
 
     payload = request.get_data()
@@ -283,17 +260,16 @@ def webhook_pix():
     ).hexdigest()
 
     if not hmac.compare_digest(calc, assinatura or ""):
-        log_event("webhook_assinatura_invalida", ip=ip)
         abort(401)
 
     data = request.json or {}
     salvar_pix(
         data.get("paymentId", "N/A"),
         float(data.get("amount", 0)),
-        data.get("status", "CONFIRMADO")
+        data.get("status", "CONFIRMADO"),
+        1  # empresa padrão para webhook externo
     )
 
-    log_event("pix_confirmado", ip=ip, extra=data.get("amount"))
     return jsonify({"ok": True})
 
 # ======================================================
@@ -304,42 +280,32 @@ def webhook_pix():
 @role_required("gerente")
 @empresa_required
 def relatorio_pdf(data):
-    fechamento = buscar_fechamento(data) or {}
+    fechamento = buscar_fechamento(data, session["empresa_id"]) or {}
     total = fechamento.get("total", 0)
     quantidade = fechamento.get("quantidade", 0)
-    ticket = total / quantidade if quantidade else 0
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-
     c.setFont("Helvetica-Bold", 22)
     c.drawString(50, 800, "PIX CONTROL")
-
-    c.setFont("Helvetica", 12)
-    c.drawString(50, 760, f"Relatório diário • {data}")
-    c.drawString(50, 720, f"Total: R$ {total:.2f}")
-    c.drawString(50, 700, f"Quantidade: {quantidade}")
-    c.drawString(50, 680, f"Ticket médio: R$ {ticket:.2f}")
-
+    c.drawString(50, 760, f"Total: R$ {total:.2f}")
+    c.drawString(50, 740, f"Quantidade: {quantidade}")
     c.showPage()
     c.save()
     buffer.seek(0)
 
-    return send_file(
-        buffer,
-        as_attachment=True,
-        download_name=f"relatorio_{data}.pdf",
-        mimetype="application/pdf"
-    )
+    return send_file(buffer, as_attachment=True,
+                     download_name=f"relatorio_{data}.pdf",
+                     mimetype="application/pdf")
 
 # ======================================================
-# FECHAMENTO AUTOMÁTICO
+# FECHAMENTO AUTO
 # ======================================================
 def fechamento_auto():
     while True:
         agora = datetime.now()
         if agora.hour == 23 and agora.minute == 59:
-            fechar_dia(agora.strftime("%Y-%m-%d"))
+            fechar_dia(agora.strftime("%Y-%m-%d"), 1)
             time.sleep(70)
         time.sleep(30)
 
