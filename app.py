@@ -77,7 +77,7 @@ def rate_limit_webhook(ip, max_hits=30, window=60):
 # ======================================================
 # APP
 # ======================================================
-app = Flask(_name_)
+app = Flask(__name__)
 app.config["SECRET_KEY"] = FLASK_SECRET_KEY
 
 app.config.update(
@@ -315,7 +315,7 @@ def fechamento_auto():
 # ======================================================
 # START
 # ======================================================
-if _name_ == "_main_":
+if __name__ == "__main__":
     Thread(target=fechamento_auto, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host="0.0.0.0", port=port)
