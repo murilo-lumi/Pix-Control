@@ -5,43 +5,50 @@ from werkzeug.security import generate_password_hash, check_password_hash
 DB_NAME = "pix.db"
 
 
-# =====================
-# Conexão
-# =====================
+# ======================================================
+# CONEXÃO
+# ======================================================
 def get_connection():
     return sqlite3.connect(DB_NAME, check_same_thread=False)
 
 
-# =====================
-# Inicialização
-# =====================
+# ======================================================
+# INIT DB (SaaS READY)
+# ======================================================
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # PIX
+    # =====================
+    # PLANOS
+    # =====================
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pix (
+        CREATE TABLE IF NOT EXISTS planos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            payment_id TEXT UNIQUE,
-            valor REAL,
-            status TEXT,
-            data TEXT,
-            hora TEXT
+            nome TEXT NOT NULL,
+            preco REAL,
+            max_usuarios INTEGER,
+            recursos TEXT
         )
     """)
 
-    # Fechamento
+    # =====================
+    # EMPRESAS (TENANTS)
+    # =====================
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS fechamento_diario (
-            data TEXT PRIMARY KEY,
-            total REAL,
-            quantidade INTEGER,
-            fechado_em TEXT
+        CREATE TABLE IF NOT EXISTS empresas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            plano_id INTEGER,
+            ativa INTEGER DEFAULT 1,
+            criada_em TEXT,
+            FOREIGN KEY (plano_id) REFERENCES planos(id)
         )
     """)
 
-    # Usuários
+    # =====================
+    # USUÁRIOS
+    # =====================
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,20 +56,83 @@ def init_db():
             senha TEXT,
             tipo TEXT,
             ativo INTEGER DEFAULT 1,
-            criado_em TEXT
+            empresa_id INTEGER,
+            criado_por INTEGER,
+            criado_em TEXT,
+            FOREIGN KEY (empresa_id) REFERENCES empresas(id)
         )
     """)
 
-    # Gerente padrão
+    # =====================
+    # PIX
+    # =====================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pix (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_id TEXT UNIQUE,
+            valor REAL,
+            status TEXT,
+            data TEXT,
+            hora TEXT,
+            empresa_id INTEGER,
+            FOREIGN KEY (empresa_id) REFERENCES empresas(id)
+        )
+    """)
+
+    # =====================
+    # FECHAMENTO DIÁRIO
+    # =====================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fechamento_diario (
+            data TEXT,
+            empresa_id INTEGER,
+            total REAL,
+            quantidade INTEGER,
+            fechado_em TEXT,
+            PRIMARY KEY (data, empresa_id)
+        )
+    """)
+
+    # ======================================================
+    # DADOS PADRÃO (NÃO QUEBRA O SISTEMA ATUAL)
+    # ======================================================
+
+    # PLANO PROFISSIONAL
+    cursor.execute("SELECT COUNT(*) FROM planos")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT INTO planos (nome, preco, max_usuarios, recursos)
+            VALUES (?, ?, ?, ?)
+        """, (
+            "Profissional",
+            199.00,
+            10,
+            "PIX em tempo real, Relatórios, Múltiplos caixas"
+        ))
+
+    # EMPRESA PADRÃO
+    cursor.execute("SELECT COUNT(*) FROM empresas")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT INTO empresas (nome, plano_id, ativa, criada_em)
+            VALUES (?, ?, 1, ?)
+        """, (
+            "Empresa Padrão",
+            1,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+    # GERENTE PADRÃO
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
-            INSERT INTO usuarios (username, senha, tipo, ativo, criado_em)
-            VALUES (?, ?, ?, 1, ?)
+            INSERT INTO usuarios (username, senha, tipo, ativo, empresa_id, criado_em)
+            VALUES (?, ?, ?, 1, ?, ?)
         """, (
             "gerente",
             generate_password_hash("admin123"),
             "gerente",
+            1,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
 
@@ -70,15 +140,15 @@ def init_db():
     conn.close()
 
 
-# =====================
-# Autenticação
-# =====================
+# ======================================================
+# AUTENTICAÇÃO
+# ======================================================
 def autenticar_usuario(username, senha):
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, senha, tipo
+        SELECT id, senha, tipo, empresa_id
         FROM usuarios
         WHERE username = ? AND ativo = 1
     """, (username,))
@@ -90,38 +160,43 @@ def autenticar_usuario(username, senha):
         return None
 
     if check_password_hash(user[1], senha):
-        return user[0], user[2]
+        return user[0], user[2], user[3]  # id, tipo, empresa_id
 
     return None
 
 
-# =====================
-# Usuários
-# =====================
-def listar_usuarios():
+# ======================================================
+# USUÁRIOS
+# ======================================================
+def listar_usuarios(empresa_id):
     conn = get_connection()
     cursor = conn.cursor()
+
     cursor.execute("""
         SELECT id, username, tipo, ativo, criado_em
         FROM usuarios
+        WHERE empresa_id = ?
         ORDER BY criado_em
-    """)
+    """, (empresa_id,))
+
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 
-def criar_usuario(username, senha, tipo="caixa"):
+def criar_usuario(username, senha, tipo, empresa_id, criado_por=None):
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO usuarios (username, senha, tipo, ativo, criado_em)
-        VALUES (?, ?, ?, 1, ?)
+        INSERT INTO usuarios (username, senha, tipo, ativo, empresa_id, criado_por, criado_em)
+        VALUES (?, ?, ?, 1, ?, ?, ?)
     """, (
         username,
         generate_password_hash(senha),
         tipo,
+        empresa_id,
+        criado_por,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ))
 
@@ -137,65 +212,63 @@ def alterar_status_usuario(user_id, ativo):
     conn.close()
 
 
-# =====================
+# ======================================================
 # PIX
-# =====================
-def salvar_pix(payment_id, valor, status):
+# ======================================================
+def salvar_pix(payment_id, valor, status, empresa_id):
     conn = get_connection()
     cursor = conn.cursor()
 
     agora = datetime.now()
 
-    # evita duplicado
     cursor.execute("""
-        INSERT OR IGNORE INTO pix (payment_id, valor, status, data, hora)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO pix
+        (payment_id, valor, status, data, hora, empresa_id)
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (
         payment_id,
         valor,
         status,
         agora.strftime("%Y-%m-%d"),
-        agora.strftime("%H:%M:%S")
+        agora.strftime("%H:%M:%S"),
+        empresa_id
     ))
 
     conn.commit()
     conn.close()
 
 
-def resumo_do_dia(data=None):
-    if not data:
-        data = datetime.now().strftime("%Y-%m-%d")
-
+def resumo_do_dia(data, empresa_id):
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         SELECT IFNULL(SUM(valor),0), COUNT(*)
         FROM pix
-        WHERE data = ?
-    """, (data,))
+        WHERE data = ? AND empresa_id = ?
+    """, (data, empresa_id))
 
     total, qtd = cursor.fetchone()
     conn.close()
     return float(total), qtd
 
 
-# =====================
-# Fechamento
-# =====================
-def fechar_dia(data=None):
-    if not data:
-        data = datetime.now().strftime("%Y-%m-%d")
-
-    total, qtd = resumo_do_dia(data)
+# ======================================================
+# FECHAMENTO
+# ======================================================
+def fechar_dia(data, empresa_id):
+    total, qtd = resumo_do_dia(data, empresa_id)
 
     conn = get_connection()
     cursor = conn.cursor()
+
     cursor.execute("""
         INSERT OR REPLACE INTO fechamento_diario
-        VALUES (?, ?, ?, ?)
+        (data, empresa_id, total, quantidade, fechado_em)
+        VALUES (?, ?, ?, ?, ?)
     """, (
         data,
+        empresa_id,
         total,
         qtd,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -205,35 +278,15 @@ def fechar_dia(data=None):
     conn.close()
 
 
-def listar_pix_por_dia(data):
+def buscar_fechamento(data, empresa_id):
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT payment_id, valor, hora
-        FROM pix
-        WHERE data = ?
-        ORDER BY hora
-    """, (data,))
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [
-        {"payment_id": r[0], "valor": r[1], "hora": r[2]}
-        for r in rows
-    ]
-
-
-def buscar_fechamento(data):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT data, total, quantidade, fechado_em
+        SELECT total, quantidade, fechado_em
         FROM fechamento_diario
-        WHERE data = ?
-    """, (data,))
+        WHERE data = ? AND empresa_id = ?
+    """, (data, empresa_id))
 
     row = cursor.fetchone()
     conn.close()
@@ -242,9 +295,7 @@ def buscar_fechamento(data):
         return None
 
     return {
-        "data": row[0],
-        "total": row[1],
-        "quantidade": row[2],
-        "fechado_em": row[3],
-        "pix": listar_pix_por_dia(data)
+        "total": row[0],
+        "quantidade": row[1],
+        "fechado_em": row[2]
     }

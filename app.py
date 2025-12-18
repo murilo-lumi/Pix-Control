@@ -38,19 +38,18 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 from database import (
-    init_db, salvar_pix, resumo_do_dia, fechar_dia,
-    buscar_fechamento, autenticar_usuario,
-    listar_usuarios, criar_usuario, alterar_status_usuario
+    init_db,
+    salvar_pix,
+    resumo_do_dia,
+    fechar_dia,
+    buscar_fechamento,
+    autenticar_usuario,
+    listar_usuarios,
+    criar_usuario,
+    alterar_status_usuario
 )
 
-# ======================================================
-# LOGS (NUNCA DERRUBA O APP)
-# ======================================================
-try:
-    from logs import log_event
-except Exception:
-    def log_event(*args, **kwargs):
-        pass
+from logs import log_event
 
 # ======================================================
 # RATE LIMIT
@@ -86,12 +85,10 @@ app.config.update(
     SESSION_COOKIE_SECURE=IS_PROD
 )
 
-socketio = SocketIO(app, async_mode="threading")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 init_db()
 
-# ======================================================
-# CSRF GLOBAL
-# ======================================================
+# CSRF global
 @app.context_processor
 def inject_csrf():
     return dict(csrf_token=session.get("csrf_token"))
@@ -168,13 +165,17 @@ def login():
         )
 
         if user:
+            user_id, tipo, empresa_id = user
+
             session.clear()
-            session["user_id"] = user[0]
-            session["tipo"] = user[1]
+            session["user_id"] = user_id
+            session["tipo"] = tipo
+            session["empresa_id"] = empresa_id
             session["csrf_token"] = secrets.token_hex(16)
 
-            log_event("login_sucesso", user=user[0], ip=ip)
-            return redirect("/gerente" if user[1] == "gerente" else "/caixa")
+            log_event("login_sucesso", user=user_id, ip=ip)
+
+            return redirect("/gerente" if tipo == "gerente" else "/caixa")
 
         log_event("login_falha", user=request.form.get("usuario"), ip=ip)
         return render_template("login.html", erro=True)
@@ -189,7 +190,9 @@ def login():
 @role_required("gerente")
 def gerente():
     hoje = datetime.now().strftime("%Y-%m-%d")
-    total, quantidade = resumo_do_dia(hoje)
+    empresa_id = session["empresa_id"]
+
+    total, quantidade = resumo_do_dia(hoje, empresa_id)
 
     return render_template(
         "gerente.html",
@@ -202,7 +205,11 @@ def gerente():
 @login_required
 @role_required("gerente")
 def gerente_usuarios():
-    return render_template("usuarios.html", usuarios=listar_usuarios())
+    empresa_id = session["empresa_id"]
+    return render_template(
+        "usuarios.html",
+        usuarios=listar_usuarios(empresa_id)
+    )
 
 @app.route("/gerente/usuarios/criar", methods=["POST"])
 @login_required
@@ -211,8 +218,15 @@ def criar_caixa_view():
     if request.form.get("csrf_token") != session.get("csrf_token"):
         abort(403)
 
-    criar_usuario(request.form["username"], request.form["senha"], "caixa")
-    log_event("criar_caixa", user=session.get("user_id"))
+    criar_usuario(
+        request.form["username"],
+        request.form["senha"],
+        "caixa",
+        session["empresa_id"],
+        session["user_id"]
+    )
+
+    log_event("criar_caixa", user=session["user_id"])
     return redirect("/gerente/usuarios")
 
 @app.route("/gerente/usuarios/<int:user_id>/status")
@@ -220,7 +234,7 @@ def criar_caixa_view():
 @role_required("gerente")
 def status_caixa(user_id):
     alterar_status_usuario(user_id, int(request.args.get("ativo")))
-    log_event("alterar_status_usuario", user=session.get("user_id"))
+    log_event("alterar_status_usuario", user=session["user_id"])
     return redirect("/gerente/usuarios")
 
 # ======================================================
@@ -230,7 +244,10 @@ def status_caixa(user_id):
 @login_required
 @role_required("caixa")
 def caixa():
-    return render_template("painel_caixa.html", SOCKETIO_TOKEN=SOCKETIO_TOKEN)
+    return render_template(
+        "painel_caixa.html",
+        SOCKETIO_TOKEN=SOCKETIO_TOKEN
+    )
 
 # ======================================================
 # WEBHOOK PIX
@@ -246,21 +263,20 @@ def webhook_pix():
     payload = request.get_data()
     assinatura = request.headers.get("X-Signature")
 
-    calc = hmac.new(
-        PIX_WEBHOOK_SECRET.encode(),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
-
-    if not hmac.compare_digest(calc, assinatura or ""):
+    if not hmac.compare_digest(
+        hmac.new(PIX_WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest(),
+        assinatura or ""
+    ):
         log_event("webhook_assinatura_invalida", ip=ip)
         abort(401)
 
     data = request.json or {}
+
     salvar_pix(
         data.get("paymentId", "N/A"),
         float(data.get("amount", 0)),
-        data.get("status", "CONFIRMADO")
+        data.get("status", "CONFIRMADO"),
+        empresa_id=session.get("empresa_id", 1)
     )
 
     log_event("pix_confirmado", ip=ip, extra=data.get("amount"))
@@ -273,7 +289,9 @@ def webhook_pix():
 @login_required
 @role_required("gerente")
 def relatorio_pdf(data):
-    fechamento = buscar_fechamento(data) or {}
+    empresa_id = session["empresa_id"]
+    fechamento = buscar_fechamento(data, empresa_id) or {}
+
     total = fechamento.get("total", 0)
     quantidade = fechamento.get("quantidade", 0)
     ticket = total / quantidade if quantidade else 0
@@ -308,7 +326,7 @@ def fechamento_auto():
     while True:
         agora = datetime.now()
         if agora.hour == 23 and agora.minute == 59:
-            fechar_dia(agora.strftime("%Y-%m-%d"))
+            fechar_dia(agora.strftime("%Y-%m-%d"), 1)
             time.sleep(70)
         time.sleep(30)
 
