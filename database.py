@@ -30,6 +30,18 @@ def garantir_empresa_padrao():
     conn.commit()
     conn.close()
 
+def migrar_pix_empresa():
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "ALTER TABLE pix ADD COLUMN empresa_id INTEGER DEFAULT 1"
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    conn.close()
+
 # ======================================================
 # INIT DB (SAAS READY, SEM QUEBRAR O ANTIGO)
 # ======================================================
@@ -148,8 +160,9 @@ def init_db():
     conn.close()
 
     # MIGRAÇÕES
-    migrar_usuarios_empresa()
-    garantir_empresa_padrao()
+migrar_usuarios_empresa()
+garantir_empresa_padrao()
+migrar_pix_empresa()
 
 # ======================================================
 # AUTENTICAÇÃO
