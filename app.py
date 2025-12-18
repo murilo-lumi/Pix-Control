@@ -236,7 +236,7 @@ def webhook_pix():
     return jsonify({"ok": True})
 
 # ======================================================
-# RELATÓRIO PDF (GERENTE)
+# RELATÓRIO PDF • PREMIUM (SEM LOGO)
 # ======================================================
 @app.route("/relatorio/<data>/pdf")
 @login_required
@@ -244,53 +244,80 @@ def webhook_pix():
 def relatorio_pdf(data):
     fechamento = buscar_fechamento(data)
 
-    # Se não houver fechamento salvo, calcula na hora
     if not fechamento:
-        total, quantidade = resumo_do_dia(data)
+        total, qtd = resumo_do_dia(data)
         fechamento = {
             "total": total,
-            "quantidade": quantidade
+            "quantidade": qtd
         }
+
+    total = fechamento["total"]
+    quantidade = fechamento["quantidade"]
+    ticket = total / quantidade if quantidade > 0 else 0
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
+
+    # Margens
+    x = 50
     y = altura - 60
 
-    # Cabeçalho
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(50, y, "PIX Control by Luminus")
-    y -= 30
+    # TÍTULO
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(x, y, "PIX CONTROL")
 
+    y -= 28
     c.setFont("Helvetica", 12)
-    c.drawString(50, y, f"Relatório diário • {data}")
+    c.drawString(x, y, "Relatório diário de pagamentos")
+
+    y -= 18
+    c.setFont("Helvetica", 10)
+    c.drawString(x, y, f"Data: {data}")
+
+    # Linha divisória
     y -= 20
+    c.setLineWidth(1)
+    c.line(x, y, largura - 50, y)
 
-    c.line(50, y, largura - 50, y)
-    y -= 30
-
-    # Dados
-    c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"Total em PIX: R$ {fechamento['total']:.2f}")
-    y -= 18
-
-    c.drawString(50, y, f"Quantidade de transações: {fechamento['quantidade']}")
-    y -= 18
-
-    ticket = (
-        fechamento["total"] / fechamento["quantidade"]
-        if fechamento["quantidade"] > 0 else 0
-    )
-
-    c.drawString(50, y, f"Ticket médio: R$ {ticket:.2f}")
+    # MÉTRICAS
     y -= 40
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(x, y, "Resumo financeiro")
 
-    # Rodapé
+    y -= 25
+    c.setFont("Helvetica", 12)
+    c.drawString(x, y, f"Total em PIX:")
+    c.drawRightString(largura - 50, y, f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+    y -= 20
+    c.drawString(x, y, "Quantidade de transações:")
+    c.drawRightString(largura - 50, y, f"{quantidade}")
+
+    y -= 20
+    c.drawString(x, y, "Ticket médio:")
+    c.drawRightString(largura - 50, y, f"R$ {ticket:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+    # Linha final
+    y -= 35
+    c.setLineWidth(0.5)
+    c.line(x, y, largura - 50, y)
+
+    # RODAPÉ
+    y -= 25
     c.setFont("Helvetica-Oblique", 9)
     c.drawString(
-        50,
+        x,
         y,
         "Documento gerado automaticamente pelo sistema PIX Control"
+    )
+
+    y -= 14
+    c.setFont("Helvetica", 9)
+    c.drawString(
+        x,
+        y,
+        "PIX Control • Plataforma SaaS de gestão de pagamentos"
     )
 
     c.showPage()
@@ -300,7 +327,7 @@ def relatorio_pdf(data):
     return send_file(
         buffer,
         as_attachment=True,
-        download_name=f"relatorio_pix_{data}.pdf",
+        download_name=f"pix_control_relatorio_{data}.pdf",
         mimetype="application/pdf"
     )
 
