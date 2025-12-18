@@ -298,4 +298,18 @@ def buscar_fechamento(data, empresa_id):
         "total": row[0],
         "quantidade": row[1],
         "fechado_em": row[2]
+    
+    }
+    
+    # =====================
+# EMPRESA / PLANO (SaaS)
+# =====================
+def buscar_empresa_do_usuario(user_id):
+    """
+    Versão inicial SaaS (fallback seguro)
+    Retorna empresa padrão enquanto estrutura completa não é criada
+    """
+    return {
+        "id": 1,
+        "plano": "free"
     }
