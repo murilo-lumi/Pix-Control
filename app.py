@@ -50,7 +50,7 @@ app.config["SECRET_KEY"] = FLASK_SECRET_KEY
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False  # TRUE somente quando estiver em HTTPS (nuvem)
+    SESSION_COOKIE_SECURE=True  # TRUE somente quando estiver em HTTPS (nuvem)
 )
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
@@ -234,6 +234,75 @@ def webhook_pix():
     })
 
     return jsonify({"ok": True})
+
+# ======================================================
+# RELATÓRIO PDF (GERENTE)
+# ======================================================
+@app.route("/relatorio/<data>/pdf")
+@login_required
+@role_required("gerente")
+def relatorio_pdf(data):
+    fechamento = buscar_fechamento(data)
+
+    # Se não houver fechamento salvo, calcula na hora
+    if not fechamento:
+        total, quantidade = resumo_do_dia(data)
+        fechamento = {
+            "total": total,
+            "quantidade": quantidade
+        }
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    largura, altura = A4
+    y = altura - 60
+
+    # Cabeçalho
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(50, y, "PIX Control by Luminus")
+    y -= 30
+
+    c.setFont("Helvetica", 12)
+    c.drawString(50, y, f"Relatório diário • {data}")
+    y -= 20
+
+    c.line(50, y, largura - 50, y)
+    y -= 30
+
+    # Dados
+    c.setFont("Helvetica", 11)
+    c.drawString(50, y, f"Total em PIX: R$ {fechamento['total']:.2f}")
+    y -= 18
+
+    c.drawString(50, y, f"Quantidade de transações: {fechamento['quantidade']}")
+    y -= 18
+
+    ticket = (
+        fechamento["total"] / fechamento["quantidade"]
+        if fechamento["quantidade"] > 0 else 0
+    )
+
+    c.drawString(50, y, f"Ticket médio: R$ {ticket:.2f}")
+    y -= 40
+
+    # Rodapé
+    c.setFont("Helvetica-Oblique", 9)
+    c.drawString(
+        50,
+        y,
+        "Documento gerado automaticamente pelo sistema PIX Control"
+    )
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"relatorio_pix_{data}.pdf",
+        mimetype="application/pdf"
+    )
 
 # ======================================================
 # FECHAMENTO AUTOMÁTICO
